@@ -35,9 +35,9 @@ WiFiClient espClient;
 
 // MQTT
 #include <PubSubClient.h>
-//#define mqtt_server "192.168.178.116"
+#define mqtt_server "192.168.178.116"
 //#define mqtt_server "192.168.137.1"
-#define mqtt_server "192.168.1.28"
+//#define mqtt_server "192.168.1.28"
 
 #define mqtt_user "your_username"
 #define mqtt_password "your_password"
@@ -83,13 +83,11 @@ void setup() {
   delay(1000);
   Serial.write("Hello\r\n");
   animor = RGBAnimator();
-  RGBFadeTask* fdt1 = new RGBFadeTask(color_t(0,255,0), color_t(255,0,0),1000,4,true);
-  RGBFlashTask* flt1 = new RGBFlashTask(color_t(0,0,0), color_t(0,0,255),500,50,12,false);
-  animor.queue_task(flt1); 
-  animor.queue_task(fdt1);  
+  animor.add_fade(color_t(0,255,0), color_t(255,0,0),2000,1000,3,true);
+  animor.add_flash(color_t(0,255,0), color_t(0,0,255),100,100,10,true);
+    
   animor.start();
-  animor.animate(20);
-  animor.set_color(color_t(0,255,255));
+  animor.animate(1);
   last = millis();
 }
 void paint_col(color_t col)
@@ -121,7 +119,16 @@ void serialEvent() {
     // get the new byte:
     char inChar = (char)Serial.read();
     byte inByte = (byte)inChar;
-    if (inByte >= 0x30 & inByte <= 0x39)
+    
+    /*uint8_t inByte = (uint8_t)Serial.read();
+    //Serial.write(inByte);
+    animor.process_data(inByte);
+    //Serial.write(inByte);    */
+  }
+}
+
+void process_byte(byte inByte){
+  if (inByte >= 0x30 & inByte <= 0x39)
     {
       inByte -= 0x30;
     }
@@ -138,7 +145,7 @@ void serialEvent() {
     }
     if(first_byte)
     {
-      outByte = 16*(uint8_t)Serial.read();
+      outByte = 16*inByte;
     }
     else
     {
@@ -147,11 +154,6 @@ void serialEvent() {
       Serial.print(outByte,HEX);
     }
     first_byte = !first_byte;
-    /*uint8_t inByte = (uint8_t)Serial.read();
-    //Serial.write(inByte);
-    animor.process_data(inByte);
-    //Serial.write(inByte);    */
-  }
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
