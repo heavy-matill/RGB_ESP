@@ -63,25 +63,25 @@ void setup() {
   /*digitalWrite(PIN_R, 0);
   digitalWrite(PIN_G, 0);
   digitalWrite(PIN_B, 0);*/
+  // initially red
   paint_col(color_t(255,0,0));
   delay(500);
-  paint_col(color_t(0,255,0));
-  delay(500);
-  paint_col(color_t(0,0,255));
-  delay(500);
-  paint_col(color_t(0,0,0));
   
   // Serial
   Serial.begin(115200);
 
-  // Wifi
+  // Wifi 
   setup_wifi();
+  // Wifi connected == green
+  paint_col(color_t(0,255,0));
+  delay(500);
   // MQTT
   client.setServer(mqtt_server, 1883);
+  // MQTT connected == blue
+  paint_col(color_t(0,0,255));
+  delay(500);
+  paint_col(color_t(0,0,0));
 
-
-  delay(1000);
-  Serial.write("Hello\r\n");
   animor = RGBAnimator();
   animor.add_fade(color_t(0,255,0), color_t(255,0,0),2000,1000,3,true);
   animor.add_flash(color_t(0,255,0), color_t(0,0,255),100,100,10,true);
@@ -108,7 +108,7 @@ void loop() {
   animor.animate(now-last);
   last = now;  
   paint_col(animor.get_color_current());   
-  delay(10);
+  delay(5);
 
   // Serial
   //serialEvent();
