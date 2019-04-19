@@ -34,20 +34,56 @@
 WiFiClient espClient;
 
 // MQTT
-#include <PubSubClient.h>
+//#include <PubSubClient.h>
+#include <MQTT.h>
 #define mqtt_server "192.168.178.116"
 //#define mqtt_server "192.168.137.1"
 //#define mqtt_server "192.168.1.28"
 
 #define mqtt_user "your_username"
 #define mqtt_password "your_password"
-PubSubClient client(espClient);
+//PubSubClient client(espClient);
 
+MQTTClient client;
 // RGBAnimator
 #include <RGBAnimator.hpp>
-#define PIN_R D8
-#define PIN_G D6
-#define PIN_B D7
+#define ADDRESSABLE
+//#define PWM
+#define RELAY
+#define OTA
+
+#ifdef ADDRESSABLE
+  #include <FastLED.h>
+  // GPIO5 ESP12-E
+  #define PIN_DATA 1
+  
+  // 30LED/M
+  #define LED_TYPE    WS2811
+  #define COLOR_ORDER BRG
+
+  #define NUM_LEDS    2
+  #define BRIGHTNESS  255
+  CRGB leds[NUM_LEDS];
+#endif
+#ifdef PWM
+// #include <SetPwmFrequency.h>
+  #define PIN_R D8
+  #define PIN_G D6
+  #define PIN_B D7
+  #define PIN_W 6
+#endif
+#ifdef RELAY
+  #define PIN_RLY1 12
+  #define PIN_RLY2 13
+#endif
+#ifdef OTA
+  #include <ESP8266WebServer.h>
+  //#include <ESP8266mDNS.h>
+  #include <ESP8266HTTPUpdateServer.h>
+  const char* host = "esp8266-webupdate";
+  ESP8266WebServer httpServer(80);
+  ESP8266HTTPUpdateServer httpUpdater;
+#endif
 uint32_t last, now;
 RGBAnimator animor;
 bool first_byte = true;
@@ -56,14 +92,34 @@ color_t color_current;
 
 
 void setup() {
-  // initialize digital pin LED_BUILTIN as an output.
-  pinMode(PIN_R, OUTPUT);
-  pinMode(PIN_G, OUTPUT);
-  pinMode(PIN_B, OUTPUT);
-  /*digitalWrite(PIN_R, 0);
-  digitalWrite(PIN_G, 0);
-  digitalWrite(PIN_B, 0);*/
-  // initially red
+  #ifdef RELAY
+    pinMode(PIN_RLY1, OUTPUT);
+    pinMode(PIN_RLY2, OUTPUT);
+    delay(500);   
+
+    digitalWrite(PIN_RLY1, 1);
+    digitalWrite(PIN_RLY2, 0);
+    delay(500);   
+    digitalWrite(PIN_RLY1, 0);
+    digitalWrite(PIN_RLY2, 1);
+    delay(500);   
+    digitalWrite(PIN_RLY1, 0);
+    digitalWrite(PIN_RLY2, 0);
+  #endif
+  #ifdef ADDRESSABLE
+    FastLED.addLeds<LED_TYPE, PIN_DATA, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+    FastLED.setBrightness(  BRIGHTNESS );
+  #endif
+  #ifdef PWM
+    //setPwmFrequency(5,32);
+    //setPwmFrequency(6,32); //default 2kHz //beware this changes millis()
+    //setPwmFrequency(9,8); //4kHz for atmega328
+
+    // initialize digital pin LED_BUILTIN as an output.
+    pinMode(PIN_R, OUTPUT);
+    pinMode(PIN_G, OUTPUT);
+    pinMode(PIN_B, OUTPUT);
+  #endif
   paint_col(color_t(255,0,0));
   delay(500);
   
@@ -72,37 +128,55 @@ void setup() {
 
   // Wifi 
   setup_wifi();
+  
+  #ifdef OTA
+    setup_ota();
+  #endif
   // Wifi connected == green
   paint_col(color_t(0,255,0));
   delay(500);
   // MQTT
-  client.setServer(mqtt_server, 1883);
+  //client.setServer(mqtt_server, 1883);
+  client.begin(mqtt_server, espClient);
   // MQTT connected == blue
   paint_col(color_t(0,0,255));
   delay(500);
   paint_col(color_t(0,0,0));
 
   animor = RGBAnimator();
-  animor.add_fade(color_t(0,255,0), color_t(255,0,0),2000,1000,3,true);
-  animor.add_flash(color_t(0,255,0), color_t(0,0,255),100,100,10,true);
+  //animor.add_fade(color_t(0,255,0), color_t(255,0,0),2000,1000,3,true);
+  //animor.add_flash(color_t(0,255,0), color_t(0,0,255),100,100,10,true);
     
-  animor.start();
-  animor.animate(1);
+  //animor.start();
+  //animor.animate(1);
+
   last = millis();
 }
 void paint_col(color_t col)
 {  
-  analogWrite(PIN_R, col.R);  
-  analogWrite(PIN_G, col.G);  
-  analogWrite(PIN_B, col.B);  
+
+  #ifdef ADDRESSABLE
+    fill_solid(leds, NUM_LEDS, CRGB(col.R, col.G, col.B));
+    FastLED.show();
+  #endif
+  #ifdef PWM
+    analogWrite(PIN_R, col.R);  
+    analogWrite(PIN_G, col.G);  
+    analogWrite(PIN_B, col.B); 
+  #endif 
 }
 
 // the loop function runs over and over again forever
 void loop() {
+  //Serial.print(".");
   // MQTT
-  reconnect();
-  client.loop();  
-  
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  #ifdef OTA
+    httpServer.handleClient();
+  #endif
   // RGBAnimator
   now = millis();
   animor.animate(now-last);
@@ -156,38 +230,75 @@ void process_byte(byte inByte){
     first_byte = !first_byte;
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  //Serial.print("Message arrived [");
-  //Serial.print(topic);
-  //Serial.print("] ");
-  for (int i = 0; i < length/2; i++) {
-    //Serial.print((char)payload[i]);  
-    uint8_t outByte;
-    for (int j = 0; j<2; j++){
-      uint8_t inByte = payload[i*2+j];
-      if (inByte >= 0x30 & inByte <= 0x39)
-          {
-            inByte -= 0x30;
+void callback(MQTTClient *client, char* topic, char* payload, int length) {
+  /*
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+  for (int i = 0; i < length; i++) {
+    Serial.print(payload[i], HEX);
+  }
+  Serial.println();*/
+
+  if (strcmp(topic,"rgb") == 0) {
+    // RGB commands
+    for (int i = 0; i < length/2; i++) {
+      //Serial.println("rgb");
+      //Serial.print((char)payload[i]);  
+      uint8_t outByte;
+      for (int j = 0; j<2; j++) {
+        uint8_t inByte = payload[i*2+j];
+        if (inByte >= 0x30 & inByte <= 0x39) {
+          inByte -= 0x30;
+        } else {
+          if (inByte >= 0x41 & inByte <= 0x46) {
+            inByte -= 0x37;
+          } else {
+            inByte = 0; // error character not 0-9,A-F
           }
-          else
-          {
-            if (inByte >= 0x41 & inByte <= 0x46)
-            {
-              inByte -= 0x37;
-            }
-            else
-            {
-              inByte = 0; // error character not 0-9,A-F
-            }
-          }
-          if (j==0)
-            outByte = 16*inByte;
-          else{            
-            outByte += inByte;
-            Serial.print(outByte, HEX);
-            animor.process_data(outByte);
-          }
+        }
+        if (j==0) {
+          outByte = 16*inByte;
+        } else {            
+          outByte += inByte;
+          //Serial.print(outByte, HEX);
+          animor.process_data(outByte);
+        }
+      }
     }
+  #ifdef RELAY
+  } else if (strcmp(topic,"relay") == 0) {
+    // Relay commands
+    switch (payload[0]) {
+      case 0x31: // "1"
+        digitalWrite(PIN_RLY1, 1);
+        digitalWrite(PIN_RLY2, 1);
+        break;
+      default:
+        digitalWrite(PIN_RLY1, 0);
+        digitalWrite(PIN_RLY2, 0);
+    }
+  } else if (strcmp(topic,"relay1") == 0) {
+    switch (payload[0]) {
+      case 0x31: // "1"
+        digitalWrite(PIN_RLY1, 1);
+        break;
+      default:
+        digitalWrite(PIN_RLY1, 0);
+    }
+  } else if (strcmp(topic,"relay2") == 0) {
+    switch (payload[0]) {
+      case 0x31: // "1"
+        digitalWrite(PIN_RLY2, 1);
+        break;
+      default:
+        digitalWrite(PIN_RLY2, 0);
+    }
+  #endif
   }
 }
 
@@ -212,7 +323,22 @@ void setup_wifi()
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+    delay(500);
 }
+
+#ifdef OTA
+void setup_ota() {
+  //MDNS.begin(host);
+
+  httpUpdater.setup(&httpServer);
+  httpServer.begin();
+
+  //MDNS.addService("http", "tcp", 80);
+  Serial.print("HTTPUpdateServer ready! Open http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/update in your browser");
+}
+#endif
 
 void reconnect() 
 {
@@ -226,9 +352,15 @@ void reconnect()
     if (client.connect("ESP8266Client"))//, mqtt_user, mqtt_password)) 
     {
       Serial.println("connected");
-      client.setCallback(callback);
+      client.onMessageAdvanced(callback);
+      //client.setCallback(callback);
       Serial.println("setCallback");
       client.subscribe("rgb");
+      #ifdef RELAY        
+        client.subscribe("relay");
+        client.subscribe("relay1");
+        client.subscribe("relay2");
+      #endif
       Serial.println("subscribed");
       client.publish("esp", "connected");
       Serial.println("published");
@@ -236,7 +368,7 @@ void reconnect()
     else 
     {
       Serial.print("failed, rc=");
-      Serial.print(client.state());
+      //Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
       // Wait 5 seconds before retrying
       delay(5000);
