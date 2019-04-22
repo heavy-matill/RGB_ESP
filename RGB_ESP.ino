@@ -26,31 +26,37 @@
 #include <ESP8266WiFi.h>
 #define wifi_ssid "istdochegal"
 #define wifi_password "123sagichnicht"
+
 //#define wifi_ssid "Wehlahm"
 //#define wifi_password "Christel44367"
 //#define wifi_ssid "AndroidAP"
 //#define wifi_ssid "LaptopAP"
 //#define wifi_password "asdasdasd"
-WiFiClient espClient;
+WiFiClient wifiClient;
 
 // MQTT
 //#include <PubSubClient.h>
 #include <MQTT.h>
-#define mqtt_server "192.168.178.116"
+#define mqtt_server "192.168.178.70"
 //#define mqtt_server "192.168.137.1"
 //#define mqtt_server "192.168.1.28"
 
-#define mqtt_user "your_username"
+#define mqtt_user "" + WiFi.macAddress()
 #define mqtt_password "your_password"
-//PubSubClient client(espClient);
+//PubSubClient mqttClient(wifiClient);
 
-MQTTClient client;
+MQTTClient mqttClient;
 // RGBAnimator
 #include <RGBAnimator.hpp>
 #define ADDRESSABLE
 //#define PWM
 #define RELAY
 #define OTA
+//#define DEBUGGING
+#define STATUS
+
+#define DEV_NAME "Leinwand"
+#define DEV_POS 0
 
 #ifdef ADDRESSABLE
   #include <FastLED.h>
@@ -75,6 +81,11 @@ MQTTClient client;
 #ifdef RELAY
   #define PIN_RLY1 12
   #define PIN_RLY2 13
+  #define ST_RLY1 digitalRead(PIN_RLY1);
+  #define ST_RLY2 digitalRead(PIN_RLY2);
+
+  #define RELAY_OFF_DELAY 5000
+  time_t time_off = millis(); 
 #endif
 #ifdef OTA
   #include <ESP8266WebServer.h>
@@ -90,6 +101,12 @@ bool first_byte = true;
 byte outByte = 0;
 color_t color_current;
 
+#ifdef STATUS  
+  #include <TaskScheduler.h>
+  void print_esp_status();
+  Task task_esp_status(10000, TASK_FOREVER, &print_esp_status);
+  Scheduler runner;
+#endif
 
 void setup() {
   #ifdef RELAY
@@ -136,8 +153,12 @@ void setup() {
   paint_col(color_t(0,255,0));
   delay(500);
   // MQTT
-  //client.setServer(mqtt_server, 1883);
-  client.begin(mqtt_server, espClient);
+  //mqttClient.setServer(mqtt_server, 1883);
+  mqttClient.begin(mqtt_server, wifiClient);
+  #ifdef STATUS
+      runner.addTask(task_esp_status);
+      task_esp_status.enable();
+  #endif
   // MQTT connected == blue
   paint_col(color_t(0,0,255));
   delay(500);
@@ -145,10 +166,12 @@ void setup() {
 
   animor = RGBAnimator();
   //animor.add_fade(color_t(0,255,0), color_t(255,0,0),2000,1000,3,true);
-  //animor.add_flash(color_t(0,255,0), color_t(0,0,255),100,100,10,true);
+  animor.add_flash(color_t(255,0,0), color_t(0,0,0),100,100,1,false);
+  animor.add_flash(color_t(0,255,0), color_t(0,0,0),100,100,1,false);
+  animor.add_flash(color_t(0,0,255), color_t(0,0,0),100,100,1,false);
     
-  //animor.start();
-  //animor.animate(1);
+  animor.start();
+  animor.animate(1);
 
   last = millis();
 }
@@ -170,19 +193,26 @@ void paint_col(color_t col)
 void loop() {
   //Serial.print(".");
   // MQTT
-  if (!client.connected()) {
+  if (!mqttClient.connected()) {
     reconnect();
   }
-  client.loop();
+  mqttClient.loop();  
+  #ifdef STATUS
+    runner.execute();
+  #endif
   #ifdef OTA
     httpServer.handleClient();
+  #endif
+  #ifdef RELAY
+    switch_relay_for_animation();
   #endif
   // RGBAnimator
   now = millis();
   animor.animate(now-last);
   last = now;  
   paint_col(animor.get_color_current());   
-  delay(5);
+  
+  //delay(5);
 
   // Serial
   //serialEvent();
@@ -230,7 +260,7 @@ void process_byte(byte inByte){
     first_byte = !first_byte;
 }
 
-void callback(MQTTClient *client, char* topic, char* payload, int length) {
+void callback(MQTTClient *mqttClient, char* topic, char* payload, int length) {
   /*
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -340,38 +370,71 @@ void setup_ota() {
 }
 #endif
 
+#ifdef RELAY
+void switch_relay_for_animation() {
+  if (animor.b_running) {
+    digitalWrite(PIN_RLY2, 1);
+    time_off = millis() + RELAY_OFF_DELAY;
+  } else {
+    if (time_off < millis()) {      
+      digitalWrite(PIN_RLY2, 0);
+    }
+  }
+}
+#endif
+
 void reconnect() 
 {
   // Loop until we're reconnected
-  while (!client.connected()) 
+  while (!mqttClient.connected()) 
   {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
     // If you do not want to use a username and password, change next line to
-    // if (client.connect("ESP8266Client")) {
-    if (client.connect("ESP8266Client"))//, mqtt_user, mqtt_password)) 
+    // if (mqttClient.connect("ESP8266Client")) {
+    if (mqttClient.connect("ESP8266Client"))//, mqtt_user, mqtt_password)) 
     {
       Serial.println("connected");
-      client.onMessageAdvanced(callback);
-      //client.setCallback(callback);
+      mqttClient.onMessageAdvanced(callback);
+      //mqttClient.setCallback(callback);
       Serial.println("setCallback");
-      client.subscribe("rgb");
+      mqttClient.subscribe("rgb");
       #ifdef RELAY        
-        client.subscribe("relay");
-        client.subscribe("relay1");
-        client.subscribe("relay2");
+        mqttClient.subscribe("relay");
+        mqttClient.subscribe("relay1");
+        mqttClient.subscribe("relay2");
       #endif
       Serial.println("subscribed");
-      client.publish("esp", "connected");
+      String msg = "{name: '" + String(DEV_NAME) + "', ip: '" + WiFi.localIP().toString() + "', mac: '" + WiFi.macAddress() + "', pos: " + DEV_POS + "}";
+      mqttClient.publish("esp", msg);
+      
+      mqttClient.publish("esp", "free_heap: " + String(ESP.getFreeHeap()));
+      mqttClient.publish("esp", ESP.getResetReason());
+      //mqttClient.publish("esp", ESP.getResetInfo());
+      
       Serial.println("published");
     }
     else 
     {
       Serial.print("failed, rc=");
-      //Serial.print(client.state());
+      //Serial.print(mqttClient.state());
       Serial.println(" try again in 5 seconds");
       // Wait 5 seconds before retrying
-      delay(5000);
+      for (uint8_t i = 0; i <= 250; i++) {
+        #ifdef OTA
+          httpServer.handleClient();
+        #endif
+        delay(20);
+      }
     }
   }
 }
+
+#ifdef STATUS
+  void print_esp_status() {    
+    mqttClient.publish("esp/" + WiFi.macAddress(), "free_heap: " + String(ESP.getFreeHeap()));
+    mqttClient.publish("esp/"+ WiFi.macAddress() , ESP.getResetReason());
+    //mqttClient.publish("esp/"+ WiFi.macAddress() , ESP.getResetInfo());
+  }
+#endif
+
