@@ -148,6 +148,9 @@ void setup() {
   
   #ifdef OTA
     setup_ota();
+    while ((ESP.getResetReason() == "Exception") && millis()<15000) {
+      httpServer.handleClient();
+    }
   #endif
   // Wifi connected == green
   paint_col(color_t(0,255,0));
@@ -170,8 +173,8 @@ void setup() {
   animor.add_flash(color_t(0,255,0), color_t(0,0,0),100,100,1,false);
   animor.add_flash(color_t(0,0,255), color_t(0,0,0),100,100,1,false);
     
-  animor.start();
-  animor.animate(1);
+  //animor.start();
+  //animor.animate(1);
 
   last = millis();
 }
