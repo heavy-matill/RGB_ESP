@@ -41,23 +41,41 @@ WiFiClient wifiClient;
 //#define mqtt_server "192.168.137.1"
 //#define mqtt_server "192.168.1.28"
 
-#define mqtt_user "" + WiFi.macAddress()
-#define mqtt_password "your_password"
+//#define mqtt_user "" + WiFi.macAddress()
 //PubSubClient mqttClient(wifiClient);
 
 MQTTClient mqttClient;
 // RGBAnimator
 #include <RGBAnimator.hpp>
-#define ADDRESSABLE
+//#define ADDRESSABLE
 //#define PWM
-#define RELAY
-#define OTA
+//#define RELAY
+//#define OTA
 //#define DEBUGGING
-#define STATUS
+//#define STATUS
 
-#define DEV_NAME "Leinwand"
-#define DEV_POS 0
+#define LEINWAND
+//#define DRUCKER
 
+#define NUM_LEDS 100
+#ifdef LEINWAND
+  #define DEV_NAME "Leinwand"
+  #define DEV_POS 0
+  #define NUM_LEDS 100
+  #define ADDRESSABLE
+  #define RELAY
+  #define OTA
+  #define STATUS
+#endif
+#ifdef DRUCKER
+  #define DEV_NAME "3DDrucker"
+  #define DEV_POS 0
+  #define NUM_LEDS 30
+  #define ADDRESSABLE
+  #define RELAY
+  #define OTA
+  #define STATUS
+#endif
 #ifdef ADDRESSABLE
   #include <FastLED.h>
   // GPIO5 ESP12-E
@@ -67,7 +85,6 @@ MQTTClient mqttClient;
   #define LED_TYPE    WS2811
   #define COLOR_ORDER BRG
 
-  #define NUM_LEDS    2
   #define BRIGHTNESS  255
   CRGB leds[NUM_LEDS];
 #endif
@@ -395,7 +412,7 @@ void reconnect()
     // Attempt to connect
     // If you do not want to use a username and password, change next line to
     // if (mqttClient.connect("ESP8266Client")) {
-    if (mqttClient.connect("ESP8266Client"))//, mqtt_user, mqtt_password)) 
+    if (mqttClient.connect(DEV_NAME)) 
     {
       Serial.println("connected");
       mqttClient.onMessageAdvanced(callback);
