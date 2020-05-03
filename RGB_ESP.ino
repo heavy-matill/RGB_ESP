@@ -37,7 +37,8 @@ WiFiClient wifiClient;
 // MQTT
 //#include <PubSubClient.h>
 #include <MQTT.h>
-#define mqtt_server "192.168.178.70"
+#define mqtt_server "192.168.178.116"
+//#define mqtt_server "192.168.178.70"
 //#define mqtt_server "192.168.137.1"
 //#define mqtt_server "192.168.1.28"
 
@@ -54,13 +55,15 @@ MQTTClient mqttClient;
 //#define DEBUGGING
 //#define STATUS
 
-#define LEINWAND
+//#define LEINWAND
 //#define DRUCKER
+#define PANEL1
 
-#define NUM_LEDS 100
 #ifdef LEINWAND
   #define DEV_NAME "Leinwand"
   #define DEV_POS 0
+  // GPIO5 ESP12-E
+  #define PIN_DATA 1
   #define NUM_LEDS 100
   #define ADDRESSABLE
   #define RELAY
@@ -70,23 +73,43 @@ MQTTClient mqttClient;
 #ifdef DRUCKER
   #define DEV_NAME "3DDrucker"
   #define DEV_POS 0
+  // GPIO5 ESP12-E
+  #define PIN_DATA 1
   #define NUM_LEDS 30
   #define ADDRESSABLE
   #define RELAY
   #define OTA
   #define STATUS
 #endif
-#ifdef ADDRESSABLE
-  #include <FastLED.h>
+#ifdef PANEL1
+  #define DEV_NAME "Panel_150_1"
+  #define DEV_POS 0
   // GPIO5 ESP12-E
   #define PIN_DATA 1
-  
+  #define NUM_X 15
+  #define NUM_Y 5
+  #define NUM_LEDS NUM_X*NUM_Y
+  #define ADDRESSABLE
+  #define RGBW
+  #define OTA
+  #define STATUS
+  #define TEXT
+#endif
+#ifdef ADDRESSABLE
+  #include <FastLED.h>  
   // 30LED/M
-  #define LED_TYPE    WS2811
-  #define COLOR_ORDER BRG
-
-  #define BRIGHTNESS  255
-  CRGB leds[NUM_LEDS];
+  #ifdef RGBW  
+    #include "FastLED_RGBW.h"
+    #define LED_TYPE    WS2812B
+    #define COLOR_ORDER RGB
+    CRGBW leds[NUM_LEDS];
+    CRGB *ledsRGB = (CRGB *) &leds[0];
+  #else
+    #define LED_TYPE    WS2811
+    #define COLOR_ORDER BRG
+    CRGB leds[NUM_LEDS];
+  #endif
+    #define BRIGHTNESS  255
 #endif
 #ifdef PWM
 // #include <SetPwmFrequency.h>
@@ -141,7 +164,7 @@ void setup() {
     digitalWrite(PIN_RLY2, 0);
   #endif
   #ifdef ADDRESSABLE
-    FastLED.addLeds<LED_TYPE, PIN_DATA, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+    //FastLED.addLeds<LED_TYPE, PIN_DATA, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
     FastLED.setBrightness(  BRIGHTNESS );
   #endif
   #ifdef PWM
@@ -349,6 +372,18 @@ void callback(MQTTClient *mqttClient, char* topic, char* payload, int length) {
         digitalWrite(PIN_RLY2, 0);
     }
   #endif
+  /*#ifdef TEXT
+  } else if (strcmp(topic,"text") == 0) {
+    // Relay commands
+    switch (payload[0]) {
+      case 0x31: // "1"
+        break;
+      default:
+      // https://github.com/AaronLiddiment/LEDText/wiki/2.Usage
+      
+      //SetText(*payload, length);
+    }
+  #endif*/
   }
 }
 
@@ -410,19 +445,20 @@ void reconnect()
   {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    // If you do not want to use a username and password, change next line to
-    // if (mqttClient.connect("ESP8266Client")) {
-    if (mqttClient.connect(DEV_NAME)) 
-    {
+    if (mqttClient.connect(DEV_NAME)) {
       Serial.println("connected");
       mqttClient.onMessageAdvanced(callback);
       //mqttClient.setCallback(callback);
       Serial.println("setCallback");
       mqttClient.subscribe("rgb");
+      mqttClient.subscribe("rgb/" + String(DEV_NAME));
       #ifdef RELAY        
         mqttClient.subscribe("relay");
         mqttClient.subscribe("relay1");
         mqttClient.subscribe("relay2");
+        mqttClient.subscribe("relay/" + String(DEV_NAME));
+        mqttClient.subscribe("relay1/" + String(DEV_NAME));
+        mqttClient.subscribe("relay2/" + String(DEV_NAME));
       #endif
       Serial.println("subscribed");
       String msg = "{name: '" + String(DEV_NAME) + "', ip: '" + WiFi.localIP().toString() + "', mac: '" + WiFi.macAddress() + "', pos: " + DEV_POS + "}";
